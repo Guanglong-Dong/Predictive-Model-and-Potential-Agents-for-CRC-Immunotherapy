@@ -1,0 +1,803 @@
+######45 immune-related immune-ssgsea#####
+setwd("D://CeRNA结直肠癌//数据文件")     #设置工作目录
+mirna = read.table(file = 'mirna_scale_log_患者交集.txt', sep = '\t',row.names = 1, header = TRUE) 
+counts_mRNA_01A = read.table(file = 'counts_mRNA_01A_患者交集.txt', sep = '\t',row.names = 1, header = TRUE) 
+counts_LncRNA_01A = read.table(file = 'counts_LncRNA_01A_患者交集.txt', sep = '\t',row.names = 1, header = TRUE) 
+fpkm_mRNA_01A = read.table(file = 'fpkm_mRNA_01A_log_scale_患者交集.txt', sep = '\t',row.names = 1, header = TRUE) 
+##load 45 immune-related immune signatures
+gene <- read.csv("ImmuneSignatures.csv")[, 1:2]
+genelist <- read.table("ImmuneRelatedGeneList.txt",header = T,sep = "\t")
+colnames(genelist)
+genelist <- genelist[,c("Symbol","Category")]
+colnames(genelist) <- colnames(gene)
+genes <- rbind(gene,genelist)
+ImmuneRelated_list<- split(as.matrix(genes)[,1], genes[,2])
+gene_exp.tumor.df<-fpkm_mRNA_01A  
+library(GSVA)
+gsva<- gsva(as.matrix(gene_exp.tumor.df), ImmuneRelated_list,method='ssgsea',kcdf='Gaussian',abs.ranking=TRUE)
+gsva1<- t(scale(t(gsva)))
+
+
+####hierarchical clustering#####
+library(cluster)
+library(dendextend)
+#clust and heatmap
+col_clust <- hclust(dist(t(gsva1), method = 'euclidean'), method = 'complete')
+plot(col_clust,labels=FALSE)
+plot(as.dendrogram(col_clust), cex = 0.6, leaflab = "none")
+library(ggplot2)
+d<-dist(t(gsva1))
+fit.average<-hclust(d,method = "complete")
+plot(fit.average,hang=-1,cex=.8,main="Average Linkage Clustering")
+library(NbClust)
+devAskNewPage(ask = TRUE)
+nc<-NbClust(t(gsva1),distance="euclidean",  min.nc=2,max.nc=15,method="complete")
+barplot(table(nc$Best.n[1,]),xlab="Number of Clusters",ylab="Number of Criteria",main="Number of Clusters Chosen by 45 Criteria")
+clusters<-cutree(fit.average,k=2)
+table(clusters)
+library(ggplot2)
+dend <- color_branches(col_clust, k = 2,col=c("#912C2C","#276C9E"))
+hclust.p = ggplot(as.ggdend(dend),labels = FALSE,theme = theme_minimal()) +
+  labs(x="Sample", y="Height")+
+  theme_bw()+
+  scale_y_continuous(expand = c(0, 0))+
+  scale_x_continuous(expand = c(0, 1))+
+  coord_cartesian(ylim=c(0,27))+
+  theme(axis.text.x = element_text(color="Black", size=8,hjust=0.5,vjust = 0),
+        axis.text.y = element_text(color ="Black", size = 8, angle = 0, hjust = 0.5, vjust = 0.5),
+        axis.title.x = element_text(face="bold", color ="Black", size = 10, angle = 0, hjust = .5, vjust = 0.5),
+        axis.title.y = element_text(face="bold",color ="Black", size = 10, angle = 90, hjust = 0.5, vjust = 1.5),
+        legend.position=c(0.88,0.75), legend.key = element_blank(), legend.background = element_blank(),
+        legend.key.size = unit(6, "pt"),
+        legend.text = element_text(color ="Black", size = 9, angle = 0, hjust = 0, vjust = 0.5),
+        legend.title = element_text(face="bold",color ="Black", size = 10, angle = 0, hjust = .5, vjust = .5),
+        strip.text = element_text(face="bold", color ="Black", size = 12)
+  )
+dend <- color_branches(col_clust, k = 2,col=c("#912C2C","#276C9E") ,groupLabels=c("C1","C2")) 
+plot(dend)
+library(gplots)
+z <- as.matrix(gsva1)
+exprTable <-z
+exprTable[exprTable>2]=2
+exprTable[exprTable<(-2)]=-2
+exprTable<-as.data.frame(exprTable)
+library(pheatmap)
+library(gplots)
+pheatmap(exprTable)
+exprTable_t <- as.data.frame(t(exprTable))
+col_dist = dist(exprTable_t)
+hclust_1 <- hclust(col_dist)
+pheatmap(exprTable, cluster_cols = hclust_1)
+dend <- color_branches(col_clust, k = 2,col=colorRampPalette(c( "#F8AC8C","#C82423")),groupLabels=c("C1","C2"),sepwidth=c(0.4,0.4)) 
+dend = reorder(as.dendrogram(dend), wts=exprTable_t$MDSC)
+exprTable<-as.matrix(exprTable)
+heatmap.2(exprTable,
+          col=colorRampPalette(c("navy", "white", "firebrick3")) ,
+          trace="none",key=T,keysize=1,scale = "none",
+          Colv=dend,margins=c(8,16),cexRow = 0.8,labCol = NA,
+          dendrogram="both",Rowv=T,colsep = c(273),sepcolor = "white",
+          sepwidth=c(4,4)
+)
+#get clusters
+result <- cutree(col_clust,k=2)
+table(result)
+result.mat <- data.frame(result)
+result.mat <- data.frame("sample" = row.names(result.mat),result.mat)
+result.mat$result <- ifelse(result.mat$result== 1,"cluster1",ifelse(result.mat$result== 2,"cluster2","cluster3"))
+
+
+####Consistency clustering####
+## validate the result using consensus cluster analysis
+library(ConsensusClusterPlus)
+res <- ConsensusClusterPlus(as.matrix(gsva1), maxK = 8, reps = 1000, pItem = 0.8, pFeature = 1, distance = "euclidean",
+                            clusterAlg = "km", corUse = "everything", seed=123456, innerLinkage = "complete", finalLinkage = "complete",
+                            plot="pdf", writeTable=T,title = "03.untitled_consensus_cluster")
+icl <- calcICL(res, title = "03.untitled_consensus_cluster",plot = 'pdf')
+col_clust2 <- res[[2]][['consensusTree']]
+plot(col_clust2)
+dend3 <- color_branches(as.dendrogram(col_clust2), k = 2,col=c("#F8AC8C","#C82423") ,groupLabels=c("C2","C1")) 
+plot(dend2)
+library(pheatmap)
+z <- as.matrix(gsva1)
+exprTable3 <-z
+exprTable3[exprTable3>2]=2
+exprTable3[exprTable3<(-2)]=-2
+
+heatmap.2(exprTable3,
+          col=colorRampPalette(c("navy", "white", "firebrick3")) ,
+          trace="none",key=T,keysize=1,scale = "none",
+          Colv=dend3,margins=c(8,16),cexRow = 0.8,labCol = NA,
+          dendrogram="both",Rowv=T,colsep = c(260),sepcolor = "white",
+          sepwidth=c(4,4)
+)
+result2 <- data.frame(res[[2]][['consensusClass']])
+result.mat2 <- data.frame("sample" = row.names(result2),result2)
+colnames(result.mat2)[2] <- "result"
+result.mat2$result <- ifelse(result.mat2$result== 1,"cluster1",ifelse(result.mat2$result== 2,"cluster2","cluster3"))
+table(result.mat2$result)
+write.table(result.mat,"result.mat.txt",sep = "\t",row.names = T,col.names = NA,quote = F)    #hierarchical result
+write.table(result.mat2,"result.mat2.txt",sep = "\t",row.names = T,col.names = NA,quote = F)  #consensus result
+library(limma)
+condition_table <- result.mat
+condition_table_for_limma <- model.matrix(~0+ condition_table$result)
+colnames(condition_table_for_limma) <- gsub("condition_table\\$result","", colnames(condition_table_for_limma))
+lmfit <- lmFit(gsva1, condition_table_for_limma)
+contrast.matrix<-makeContrasts(cluster1-cluster2,levels=condition_table_for_limma)
+fit2<-contrasts.fit(lmfit,contrast.matrix)
+fit2<-eBayes(fit2)
+fit2$coefficients
+tT=topTable(fit2,adjust='fdr',coef=1,number=Inf,p.value=1)
+sig_cluster1TO2 <- tT[which(abs(tT$logFC) > 0.584963 & tT$adj.P.Val < 0.05),]
+dim(sig_cluster1TO2)
+sig_gsva <- gsva1[unique(c(row.names(sig_cluster1TO2))),]
+z2 <- as.matrix(sig_gsva)
+
+
+#####secondary clustering ####
+gsva1<- t(scale(t(gsva)))
+gsva1<-gsva1[rownames(sig_cluster1TO2),]
+#hierarchical clustering
+library(cluster)
+library(dendextend)
+#clust and heatmap
+col_clust <- hclust(dist(t(gsva1), method = 'euclidean'), method = 'complete')
+plot(col_clust,labels=FALSE)
+plot(as.dendrogram(col_clust), cex = 0.6, leaflab = "none")
+library(ggplot2)
+d<-dist(t(gsva1))
+fit.average<-hclust(d,method = "complete")
+plot(fit.average,hang=-1,cex=.8,main="Average Linkage Clustering")
+library(NbClust)
+devAskNewPage(ask = TRUE)
+nc<-NbClust(t(gsva1),distance="euclidean",  min.nc=2,max.nc=15,method="complete")
+barplot(table(nc$Best.n[1,]),xlab="Number of Clusters",ylab="Number of Criteria",main="Number of Clusters Chosen by 39 Criteria")
+clusters<-cutree(fit.average,k=3) 
+library(ggplot2)
+dend <- color_branches(col_clust, k = 3,col=colorRampPalette(c("#C82423","#2878B5", "#F8AC8C"))
+                       ,groupLabels=c("C3","C1","C2"),sepwidth=c(0.1,0.1)) 
+hclust.p = ggplot(as.ggdend(dend),labels = FALSE,theme = theme_minimal()) +
+  labs(x="Sample", y="Height")+
+  theme_bw()+
+  scale_y_continuous(expand = c(0, 0))+
+  scale_x_continuous(expand = c(0, 1))+
+  coord_cartesian(ylim=c(0,27))+
+  theme(axis.text.x = element_text(color="Black", size=8,hjust=0.5,vjust = 0),
+        axis.text.y = element_text(color ="Black", size = 8, angle = 0, hjust = 0.5, vjust = 0.5),
+        axis.title.x = element_text(face="bold", color ="Black", size = 10, angle = 0, hjust = .5, vjust = 0.5),
+        axis.title.y = element_text(face="bold",color ="Black", size = 10, angle = 90, hjust = 0.5, vjust = 1.5),
+        legend.position=c(0.88,0.75), legend.key = element_blank(), legend.background = element_blank(),
+        legend.key.size = unit(6, "pt"),
+        legend.text = element_text(color ="Black", size = 9, angle = 0, hjust = 0, vjust = 0.5),
+        legend.title = element_text(face="bold",color ="Black", size = 10, angle = 0, hjust = .5, vjust = .5),
+        strip.text = element_text(face="bold", color ="Black", size = 12)
+  )
+
+dend = reorder(as.dendrogram(dend), wts=exprTable_t$Antigen_Processing_and_Presentation)
+library(gplots)
+z <- as.matrix(gsva1)
+exprTable <-z
+exprTable[exprTable>2]=2
+exprTable[exprTable<(-2)]=-2
+heatmap.2(exprTable,
+          col=colorRampPalette(c("navy", "white", "firebrick3")) ,
+          trace="none",key=T,keysize=1,scale = "none",
+          Colv=dend,margins=c(8,16),colsep = c(188,387),cexRow = 0.8,labCol = NA,
+          dendrogram="both",Rowv=T, sepwidth=c(3,3))
+range(exprTable)
+bk <- c(seq(-2,-0.1,by=0.01),seq(0,2,by=0.01))
+p2<-Heatmap(exprTable, name = "value",
+            cluster_columns = dend, 
+            show_column_names = FALSE,
+            column_split = 3,
+            row_dend_width = unit(10, "cm"), 
+            cluster_rows = F
+)
+p2
+dend = reorder(as.dendrogram(hclust_1), wts= z)
+col_dist = dist(z)
+hclust_1 <- hclust(col_dist)
+col_cluster <- as.hclust(dend)
+#get clusters
+result <- cutree(col_clust,k=3)
+table(result)
+result.mat <- data.frame(result)
+result.mat <- data.frame("sample" = row.names(result.mat),result.mat)
+result.mat$result <- ifelse(result.mat$result== 1,"cluster1",ifelse(result.mat$result== 2,"cluster2","cluster3"))
+table(result.mat$result)
+## validate the result using consensus cluster analysis
+library(ConsensusClusterPlus)
+res <- ConsensusClusterPlus(as.matrix(gsva1), maxK = 8, reps = 1000, pItem = 0.8, pFeature = 1, distance = "euclidean",
+                            clusterAlg = "km", corUse = "everything", seed=123456, innerLinkage = "complete", finalLinkage = "complete",
+                            plot="pdf", writeTable=T,title = "03.untitled_consensus_cluster")
+icl <- calcICL(res, title = "03.untitled_consensus_cluster",plot = 'pdf')
+col_clust2 <- res[[3]][['consensusTree']]
+plot(col_clust2)
+dend2 <- color_branches(as.dendrogram(col_clust2), k = 3,col=colorRampPalette(c("#C82423","#2878B5", "#F8AC8C"))
+                        ,groupLabels=c("C3","C1","C2")) 
+plot(dend2) 
+hclust.p = ggplot(as.ggdend(dend2),labels = FALSE,theme = theme_minimal()) +
+  labs(x="Sample", y="Height")+
+  theme_bw()+
+  scale_y_continuous(expand = c(0, 0))+
+  scale_x_continuous(expand = c(0, 1))+
+  coord_cartesian(ylim=c(0,27))+
+  theme(axis.text.x = element_text(color="Black", size=8,hjust=0.5,vjust = 0),
+        axis.text.y = element_text(color ="Black", size = 8, angle = 0, hjust = 0.5, vjust = 0.5),
+        axis.title.x = element_text(face="bold", color ="Black", size = 10, angle = 0, hjust = .5, vjust = 0.5),
+        axis.title.y = element_text(face="bold",color ="Black", size = 10, angle = 90, hjust = 0.5, vjust = 1.5),
+        legend.position=c(0.88,0.75), legend.key = element_blank(), legend.background = element_blank(),
+        legend.key.size = unit(6, "pt"),
+        legend.text = element_text(color ="Black", size = 9, angle = 0, hjust = 0, vjust = 0.5),
+        legend.title = element_text(face="bold",color ="Black", size = 10, angle = 0, hjust = .5, vjust = .5),
+        strip.text = element_text(face="bold", color ="Black", size = 12)
+  )
+plot(dend2) 
+plot(hclust.p)
+library(pheatmap)
+z <- as.matrix(gsva1)
+exprTable2 <-z
+exprTable2[exprTable2>2]=2
+exprTable2[exprTable2<(-2)]=-2
+dend2 = reorder(as.dendrogram(dend2), wts=exprTable_t$Chemokines)
+heatmap.2(exprTable2,
+          col=colorRampPalette(c("navy", "white", "firebrick3")) ,
+          trace="none",key=T,keysize=1,scale = "none",
+          Colv=dend2,margins=c(8,16),colsep = c(204,429),cexRow = 0.8,labCol = NA,
+          dendrogram="both",Rowv=T)
+
+result2 <- data.frame(res[[3]][['consensusClass']])
+result.mat2 <- data.frame("sample" = row.names(result2),result2)
+colnames(result.mat2)[2] <- "result"
+result.mat2$result <- ifelse(result.mat2$result== 1,"cluster1",ifelse(result.mat2$result== 2,"cluster2","cluster3"))
+table(result.mat2$result)
+write.table(result.mat,"result.mat_二次聚类.txt",sep = "\t",row.names = T,col.names = NA,quote = F)
+write.table(result.mat2,"result.mat2_二次聚类.txt",sep = "\t",row.names = T,col.names = NA,quote = F)
+
+## limma was used to identify the differentially infiltrated signatures
+library(limma)
+#cancer=1, normal=0. 
+condition_table <- result.mat
+condition_table_for_limma <- model.matrix(~0+ condition_table$result)
+colnames(condition_table_for_limma) <- gsub("condition_table\\$result","", colnames(condition_table_for_limma))
+lmfit <- lmFit(gsva1, condition_table_for_limma)
+contrast.matrix<-makeContrasts(cluster1-cluster2,levels=condition_table_for_limma)
+fit2<-contrasts.fit(lmfit,contrast.matrix)
+fit2<-eBayes(fit2)
+fit2$coefficients
+tT=topTable(fit2,adjust='fdr',coef=1,number=Inf,p.value=1)
+sig_cluster1TO2 <- tT[which(abs(tT$logFC) > 0.584963 & tT$adj.P.Val < 0.05),]
+dim(sig_cluster1TO2)
+contrast.matrix<-makeContrasts(cluster1-cluster3,levels=condition_table_for_limma)
+fit2<-contrasts.fit(lmfit,contrast.matrix)
+fit2<-eBayes(fit2)
+fit2$coefficients
+tT=topTable(fit2,adjust='fdr',coef=1,number=Inf,p.value=1)
+sig_cluster1TO3 <- tT[which(abs(tT$logFC) > 0.584963 & tT$adj.P.Val < 0.05),]
+dim(sig_cluster1TO3)
+contrast.matrix<-makeContrasts(cluster2-cluster3,levels=condition_table_for_limma)
+fit2<-contrasts.fit(lmfit,contrast.matrix)
+fit2<-eBayes(fit2)
+fit2$coefficients
+tT=topTable(fit2,adjust='fdr',coef=1,number=Inf,p.value=1)
+sig_cluster2TO3 <- tT[which(abs(tT$logFC) > 0.584963 & tT$adj.P.Val < 0.05),]
+dim(sig_cluster2TO3)
+sig_gsva <- gsva1[unique(c(row.names(sig_cluster1TO2),row.names(sig_cluster1TO3),row.names(sig_cluster2TO3))),]
+z2 <- as.matrix(sig_gsva)
+heatmap.2( z2,
+           col=bluered(length(seq(-3,3,0.01))-1),breaks = seq(-3,3,0.01),
+           # col=bluered,
+           trace="none",key=T,keysize=1,scale = "none",
+           Colv=dend,labCol = NA,margins=c(8,16),cexRow = 0.8,
+           dendrogram="both",Rowv=T)
+
+
+####Differential expressed genes analysis####
+setwd('D://CeRNA结直肠癌//数据文件')
+##load gene expression data
+gene_exp.mat = read.table("fpkm_mRNA_01A_log_scale_患者交集.txt",header = T,sep = "\t")
+gene_exp.df = gene_exp.mat[!duplicated(gene_exp.mat$X),]
+row.names(gene_exp.df) = gene_exp.df$X
+gene_exp.df = gene_exp.df[,-c(1)]
+##load survival info
+survival.info = read.table("生存数据3.txt",header = T,sep = "\t")
+com<-intersect(survival.info$case_submitter_id,colnames(gsva1) )
+survival.info<-survival.info[survival.info$case_submitter_id %in% com,]
+length(unique(gsub("-",".",survival.info$case_submitter_id)))
+result.mat<- read.table("result.mat_二次聚类.txt",sep = "\t",row.names = 1,check.names = F,stringsAsFactors = F,header = T)
+gene_exp.tumor.df.normalized<- read.table(file = 'fpkm_mRNA_01A_log_scale_患者交集.txt', sep = '\t',row.names = 1, header = TRUE) 
+## DEG
+library(limma)
+condition_table <- result.mat
+condition_table_for_limma <- model.matrix(~0+ condition_table$result)
+colnames(condition_table_for_limma) <- gsub("condition_table\\$result","", colnames(condition_table_for_limma))
+lmfit <- lmFit(gene_exp.tumor.df.normalized, condition_table_for_limma)
+contrast.matrix<-makeContrasts(cluster2-cluster1,levels=condition_table_for_limma)
+fit2<-contrasts.fit(lmfit,contrast.matrix)
+fit2<-eBayes(fit2)
+# fit2$coefficients
+tT=topTable(fit2,adjust='fdr',coef=1,number=Inf,p.value=1)
+DEGs_cluster2TO1 <- tT[which(abs(tT$logFC) > 0.584963 & tT$adj.P.Val < 0.05),]
+dim(DEGs_cluster2TO1)
+DEGs_cluster2TO1.Mat <- data.frame("gene"=row.names(DEGs_cluster2TO1),DEGs_cluster2TO1)
+DEGs_cluster2TO1.df <- gene_exp.tumor.df.normalized[c(row.names(DEGs_cluster2TO1.Mat)),]
+DEGs_cluster2TO1.df.z3 <- as.matrix(DEGs_cluster2TO1.df)
+range(DEGs_cluster2TO1.df.z3)
+dim(DEGs_cluster2TO1.df.z3)
+contrast.matrix<-makeContrasts(cluster3-cluster1,levels=condition_table_for_limma)
+fit2<-contrasts.fit(lmfit,contrast.matrix)
+fit2<-eBayes(fit2)
+tT=topTable(fit2,adjust='fdr',coef=1,number=Inf,p.value=1)
+DEGs_cluster3TO1 <- tT[which(abs(tT$logFC) > 0.584963 & tT$adj.P.Val < 0.05),]
+dim(DEGs_cluster3TO1)
+DEGs_cluster3TO1.Mat <- data.frame("gene"=row.names(DEGs_cluster3TO1),DEGs_cluster3TO1)
+DEGs_cluster3TO1.df <- gene_exp.tumor.df.normalized[c(row.names(DEGs_cluster3TO1.Mat)),]
+DEGs_cluster3TO1.df.z3 <- as.matrix(DEGs_cluster3TO1.df)
+range(DEGs_cluster3TO1.df.z3)
+contrast.matrix<-makeContrasts(cluster2-cluster3,levels=condition_table_for_limma)
+fit2<-contrasts.fit(lmfit,contrast.matrix)
+fit2<-eBayes(fit2)
+tT=topTable(fit2,adjust='fdr',coef=1,number=Inf,p.value=1)
+DEGs_cluster2TO3 <- tT[which(abs(tT$logFC) > 0.584963 & tT$adj.P.Val < 0.05),]
+dim(DEGs_cluster2TO3)
+DEGs_cluster2TO3.Mat <- data.frame("gene"=row.names(DEGs_cluster2TO3),DEGs_cluster2TO3)
+DEGs_cluster2TO3.df <- gene_exp.tumor.df.normalized[c(row.names(DEGs_cluster2TO3.Mat)),]
+DEGs_cluster2TO3.df.z3 <- as.matrix(DEGs_cluster2TO3.df)
+range(DEGs_cluster2TO3.df.z3)
+library(ComplexHeatmap)
+library(dendextend)
+library(RColorBrewer)
+library(circlize)
+DEGs_total.z3 = rbind(DEGs_cluster2TO1.df.z3,
+                      DEGs_cluster3TO1.df.z3,
+                      DEGs_cluster2TO3.df.z3)
+split.total = c(rep("C2vsC1",nrow(DEGs_cluster2TO1.df.z3)),
+                rep("C3vsC1",nrow(DEGs_cluster3TO1.df.z3)),
+                rep("C2vsC3",nrow(DEGs_cluster2TO3.df.z3)))
+
+annot_df <- data.frame(Cluster = result.mat$result)
+annot_df$Cluster = gsub("cluster1","cluster1",annot_df$Cluster)
+annot_df$Cluster = gsub("cluster2","cluster2",annot_df$Cluster)
+annot_df$Cluster = gsub("cluster3","cluster3",annot_df$Cluster)
+row.names(annot_df) = row.names(result.mat)
+col = list(Cluster = c("cluster1" = "green", "cluster2" = "red", "cluster3" = "blue"))
+ha <- HeatmapAnnotation("Cluster" = annot_df$Cluster, 
+                        col = col,which = "column")
+
+Heatmap(DEGs_total.z3, name = "colorKey",
+        colorRamp2(c(-2, 0, 2), c("blue", "gray", "darkred")),
+        show_row_names = FALSE,show_column_names = FALSE,show_row_dend=F,
+        column_dend_height = unit(3, "cm"),cluster_columns = dend,
+        split = split.total,cluster_rows=F,top_annotation = ha
+)
+
+
+## 10-year OS
+survival.info$X = gsub("-",".",survival.info$X)
+substring(colnames(gene_exp.tumor.df),1,12)
+survival.info$vital_status = as.numeric(substring(survival.info$vital_status,1,1))
+survival.info$vital_status = substring(survival.info$vital_status,1,1)
+survival.info$vital_status[which(survival.info$vital_status == "[")] = NA
+survival.info$vital_status = as.numeric(survival.info$vital_status)
+survival.info$time [grep("Not",survival.info$time )] = NA
+survival.info$time  = as.numeric(survival.info$time )
+survival.info$cluster = result.mat$result[match(survival.info$X,substring(result.mat$sample,1,12))]
+survival.info = survival.info[!is.na(survival.info$cluster),]
+library("survival")
+library("survminer")
+survival.info.year1 = survival.info
+survival.info.year1 = survival.info.year1[which(survival.info.year1$time<1825),]
+survival.info.year1$time<-survival.info.year1$time/365
+fit.cluster <- survfit(Surv(time, vital_status) ~ cluster, data=survival.info.year1)
+p= ggsurvplot(fit.cluster, data = survival.info.year1,
+              pval = TRUE,
+              pval.coord = c(0, 0.03),
+              surv.median.line = "hv", #添加中位生存曲线
+              palette=c("blue", "#F8AC8C","red"),  #更改线的颜色
+              legend.labs=c(paste0("cluster1: (n=",nrow(survival.info.year1[survival.info.year1$cluster == "cluster1",]),")"),
+                            paste0("cluster2: (n=",nrow(survival.info.year1[survival.info.year1$cluster == "cluster2",]),")"),
+                            paste0("cluster3: (n=",nrow(survival.info.year1[survival.info.year1$cluster == "cluster3",]),")")), #标签
+              # legend.title="Treatment", 
+              title=paste0("Overall survival for subtypes "), #标题
+              # ylab="Disease Free survival (%)",
+              ylab="Overall survival (%)",
+              xlab = " Time (Years)", #更改横纵坐标
+              # risk.table = TRUE,
+              censor.shape = 124,censor.size = 2,conf.int = FALSE, #删失点的形状和大小
+              font.main = c(13, "bold", "black"),
+              font.x = c(12, "bold", "black"),
+              font.y = c(12, "bold", "black"),
+              break.x.by = 1)
+print(p, newpage = FALSE)
+
+
+######Expression of immune-related genes######
+## expression of CD1 family genes
+#validate the gene-family related to immune
+#CD1 gene-family
+library(ggpubr)
+library(reshape2)
+genef1 = DEGs_total.z3[startsWith(row.names(DEGs_total.z3),"CD"),]
+genef1 <- genef1[grep("CD[0-9]",row.names(genef1)),]
+genef1 <- genef1[which(!(row.names(genef1) %in% c("CD300LF","CD200R1","CD163L1"))),]
+genef1 = genef1[!duplicated(row.names(genef1)),]
+genef1 <- data.frame("gene"=row.names(genef1),genef1)
+genef1 <- melt(genef1,id.vars=c("gene"))
+genef1$group <- ifelse(genef1$variable %in% result.mat$sample[which(result.mat$result == "cluster2")],"cluster2",
+                       ifelse(genef1$variable %in% result.mat$sample[which(result.mat$result == "cluster3")],"cluster3","cluster1") )
+#plot
+genef1.p3 = ggboxplot(genef1, x = "gene", y = "value",
+                      ylab="value",
+                      add.params = list(fill = "white",shape = "group",alpha=1), 
+                      color = "group",fill = "group", palette =c("#9AC9DB", "#F8AC8C", "#C82423"
+                      ) )   +
+  scale_y_continuous(expand = c(0,0))+
+  stat_compare_means(aes(group = group), label = "p.signif")                                                                                          
+print(genef1.p3)
+
+## expression of IL1 family genes
+genef2 <- DEGs_total.z3[startsWith(row.names(DEGs_total.z3),"IL"),]
+genef2 = genef2[!duplicated(row.names(genef2)),]
+genef2 <- data.frame("gene"=row.names(genef2),genef2)
+genef2 <- melt(genef2,id.vars=c("gene"))
+genef2$group <- ifelse(genef2$variable %in% result.mat$sample[which(result.mat$result == "cluster2")],"cluster2",
+                       ifelse(genef2$variable %in% result.mat$sample[which(result.mat$result == "cluster3")],"cluster3","cluster1") )
+
+genef1.p2 = ggboxplot(genef2, x = "gene", y = "value",
+                      ylab="value",
+                      add.params = list(fill = "white",shape = "group",alpha=1), 
+                      color = "group",fill = "group", palette =c("#9AC9DB", "#F8AC8C","#C82423")
+)  +coord_flip()   +
+  scale_y_continuous(expand = c(0,0))+
+  stat_compare_means(aes(group = group), label = "p.signif")                                                                                          
+
+print(genef1.p2)
+
+##help function for boxplot
+BoxplotofClusters=function(tmp){
+  temp.df = data.frame("gene"=row.names(tmp),tmp)
+  library(reshape2)
+  temp.df = melt(temp.df,id.vars=c("gene"))
+  temp.df$group <- ifelse(temp.df$variable %in% result.mat$sample[which(result.mat$result == "cluster2")],"cluster2",
+                          ifelse(temp.df$variable %in% result.mat$sample[which(result.mat$result == "cluster3")],"cluster3","cluster1") )
+  return(temp.df)
+  
+}
+result.mat = read.table(file = 'result.mat_二次聚类.txt', sep = '\t', header = TRUE) 
+
+## use xCell to validate the immune cell infiltration in the classification above
+gene_exp.tumor.df.normalized<- read.table(file = 'fpkm_mRNA_01A_log_scale_患者交集.txt', sep = '\t',row.names = 1, header = TRUE) 
+library(ggplot2)
+library(immunedeconv)
+library(tidyverse)
+immunedeconv_xcell = deconvolute_xcell(gene_expression_matrix = gene_exp.tumor.df.normalized ,arrays = TRUE)
+#plot
+immunedeconv_xcell.df = BoxplotofClusters(immunedeconv_xcell)
+library(ggpubr)
+ggboxplot(immunedeconv_xcell.df, "gene", "value", color = "group",
+          palette = c(
+            #"#2878B5",
+            "blue","#F8AC8C","red"
+          ),
+          ylab = "Estimated Fraction",fill = "white",xlab = FALSE,size=0.001,width=0.5)+
+  rotate_x_text(angle=30,hjust=1,vjust=1)+
+  stat_compare_means(aes(group = group), label = "p.signif")
+
+
+my_comparisons = list(c("cluster1","cluster2"), c("cluster2","cluster3"), c("cluster1","cluster3"))
+ggboxplot(immunedeconv_xcell.df, x = "gene", y = "value",
+          color = "group",fill = "white", palette =c(
+            #"#2878B5",
+            "blue",                                                                                                                 
+            "#F8AC8C",
+            "red"
+          ) )+ stat_compare_means(aes(group = group), label = "p.signif")+rotate_x_text(angle=30,hjust=1,vjust=1)
+
+# remove unrelated cell subtypes, i.e., Astrocytes, Hepatocytes, HSC and scores in the result
+remove.list = c("Astrocytes","Hepatocytes","HSC","ImmuneScore","StromaScore","MicroenvironmentScore")
+immunedeconv_xcell.df2 = immunedeconv_xcell.df[which(!(immunedeconv_xcell.df$gene %in% remove.list)),]
+library(ggpubr)
+ggboxplot(immunedeconv_xcell.df2, x = "gene", y = "value",
+          color = "group",fill = "group", palette =c(
+            #"#2878B5",
+            "blue",                                                                                                                 
+            "#F8AC8C",
+            "red"
+          ) )+ stat_compare_means(aes(group = group), label = "p.signif")+rotate_x_text(angle=30,hjust=1,vjust=1)
+#plot
+ggboxplot(immunedeconv_xcell.df2, "gene", "value", color = "group",
+          palette = c(
+            #"#2878B5",
+            "blue","#F8AC8C","red"
+          ),
+          ylab = "Estimated Fraction",fill = "white",xlab = FALSE,size=0.01,width=0.5)+
+  rotate_x_text(angle=30,hjust=1,vjust=1)+
+  stat_compare_means(aes(group = group), label = "p.signif")
+# MicroenvironmentScore
+immunedeconv_xcell.df3 = immunedeconv_xcell.df[which(immunedeconv_xcell.df$gene %in% "MicroenvironmentScore"),]
+my_comparisons <-  list(c("cluster1","cluster2"), c("cluster2","cluster3"), c("cluster1","cluster3"))
+library(ggpubr)
+ggboxplot(immunedeconv_xcell.df3, x = "group", y = "value",
+          ylab="MicroenvironmentScore",
+          #order=c("C1(low)","C3(moderate)","C2(high)"),
+          # add = "boxplot", 
+          add.params = list(fill = "white",shape = "group",alpha=1), 
+          color = "group",fill = "group", palette =c(
+            #"#2878B5",
+            "#9AC9DB",                                                                                                                 
+            "#F8AC8C",
+            "#C82423"
+          ) )+ 
+  stat_compare_means(comparisons = my_comparisons,method = "wilcox.test", symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+                                                                                           symbols = c("***", "**", "*", "ns")), label.y = c(4, 4.5, 5))
+
+
+my_comparisons = list(c("cluster1","cluster2"), c("cluster2","cluster3"), c("cluster1","cluster3"))
+ggboxplot(immunedeconv_xcell.df3, x = "group", y = "value",add="jitter",
+          color = "group",fill = "white",size=1,width=0.5, xlab=FALSE,ylab = "MicroenvironmentScore", palette = c(
+            #"#2878B5",
+            "blue",                                                                                                                 
+            "#F8AC8C",
+            "red"
+          )     )+
+  #geom_point(pch=21, fill="black", color="deepskyblue")+
+  #geom_jitter(size = 1, width = 0.2,alpha=0.5,color="deepskyblue")+
+  stat_compare_means(comparisons = my_comparisons , method = "wilcox.test", 
+                     symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+                                      symbols = c("***", "**", "*", "ns")), 
+                     label.y = c(3.6, 4.1, 4.6))
+## ESTIMATE: to calculate the Stromalscore, immunescore, ESTIMATE SCORE
+library(utils)
+# rforge <- "http://r-forge.r-project.org"
+# install.packages("estimate", repos=rforge, dependencies=TRUE)
+library(estimate)
+#write.table(gene_exp.tumor.df.normalized,"gene_exp.tumor.df.normalized.input.txt",sep = "\t",quote = F)
+input.exp = "gene_exp.tumor.df.normalized.input.txt"
+filterCommonGenes(input.f=input.exp, 
+                  output.f="gene_exp.tumor.df.normalized.input.commonGenes.gct", 
+                  id="GeneSymbol")
+estimateScore(input.ds = "gene_exp.tumor.df.normalized.input.commonGenes.gct",
+              output.ds="gene_exp.tumor.df.normalized.input_estimate_score.gct", 
+              platform="illumina")
+estimate_scores=read.table("gene_exp.tumor.df.normalized.input_estimate_score.gct",skip = 2,header = T)
+row.names(estimate_scores) = estimate_scores$NAME
+estimate_scores2=t(estimate_scores[,3:ncol(estimate_scores)])
+#plot
+estimate_scores2.df = BoxplotofClusters(t(estimate_scores2))
+library(ggpubr)
+estimate_scores.p = ggboxplot(estimate_scores2.df, "gene", "value",ylab="Estimate_scores",color = "group",outlier.size=0.2,
+                              palette = c(
+                                #"#2878B5",
+                                "blue",                                                                                                                 
+                                "#F8AC8C",
+                                "red"
+                              ) ,
+                              xlab = FALSE,size=1,width=0.5)+
+  rotate_x_text(angle=0,hjust=0.5,vjust=1)+
+  stat_compare_means(aes(group = group), label = "p.signif")
+print(estimate_scores.p)
+##StromalScore
+StromalScore<-estimate_scores2.df[estimate_scores2.df$gene=='StromalScore',]
+my_comparisons = list(c("cluster1","cluster2"), c("cluster2","cluster3"), c("cluster1","cluster3"))
+ggboxplot(StromalScore, x = "group", y = "value",add="jitter",
+          color = "group",fill = "white",size=1,width=0.5, xlab=FALSE,ylab = "StromalScore", palette = c(
+            #"#2878B5",
+            "blue",                                                                                                                 
+            "#F8AC8C",
+            "red"
+          )     )+
+  stat_compare_means(comparisons = my_comparisons , method = "wilcox.test", 
+                     symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+                                      symbols = c("***", "**", "*", "ns")), 
+                     label.y = c(4000, 5000, 6000))
+
+##ImmuneScore
+ImmuneScore<-estimate_scores2.df[estimate_scores2.df$gene=='ImmuneScore',]
+my_comparisons = list(c("cluster1","cluster2"), c("cluster2","cluster3"), c("cluster1","cluster3"))
+ggboxplot(ImmuneScore, x = "group", y = "value",add="jitter",
+          color = "group",fill = "white",size=1,width=0.5, xlab=FALSE,ylab = "ImmuneScore", palette = c(
+            #"#2878B5",
+            "blue",                                                                                                                 
+            "#F8AC8C",
+            "red"
+          )     )+
+  #geom_point(pch=21, fill="black", color="deepskyblue")+
+  #geom_jitter(size = 1, width = 0.2,alpha=0.5,color="deepskyblue")+
+  stat_compare_means(comparisons = my_comparisons , method = "wilcox.test", 
+                     symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+                                      symbols = c("***", "**", "*", "ns")), 
+                     label.y = c(4000, 5000, 6000))
+#ESTIMATEScore
+ESTIMATEScore<-estimate_scores2.df[estimate_scores2.df$gene=='ESTIMATEScore',]
+my_comparisons = list(c("cluster1","cluster2"), c("cluster2","cluster3"), c("cluster1","cluster3"))
+ggboxplot(ESTIMATEScore, x = "group", y = "value",add="jitter",
+          color = "group",fill = "white",size=1,width=0.5, xlab=FALSE,ylab = "ESTIMATEScore", palette = c(
+            #"#2878B5",
+            "blue",                                                                                                                 
+            "#F8AC8C",
+            "red"
+          )     )+
+  #geom_point(pch=21, fill="black", color="deepskyblue")+
+  #geom_jitter(size = 1, width = 0.2,alpha=0.5,color="deepskyblue")+
+  stat_compare_means(comparisons = my_comparisons , method = "wilcox.test", 
+                     symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+                                      symbols = c("***", "**", "*", "ns")), 
+                     label.y = c(8000, 9000, 10000))
+#TumorPurity
+TumorPurity = cos(0.6049872018+0.0001467884 * estimate_scores2[,3])
+TumorPurity.df = data.frame(cbind(TumorPurity = as.numeric(TumorPurity), Sample = names(TumorPurity)))
+TumorPurity.df$group <- ifelse(TumorPurity.df$Sample %in% result.mat$sample[which(result.mat$result == "cluster2")],"cluster2",
+                               ifelse(TumorPurity.df$Sample %in% result.mat$sample[which(result.mat$result == "cluster3")],"cluster3","cluster1") )
+TumorPurity.df$TumorPurity = as.numeric(TumorPurity.df$TumorPurity)
+my_comparisons = list(c("cluster1","cluster2"), c("cluster2","cluster3"), c("cluster1","cluster3"))
+#Plot
+ggboxplot(TumorPurity.df, x = "group", y = "TumorPurity",
+          color = "group",fill = "white",add="jitter", palette =c(
+            #"#2878B5",
+            "blue",                                                                                                                 
+            "#F8AC8C",
+            "red"
+          ) )+ 
+  stat_compare_means(comparisons = my_comparisons,method = "wilcox.test",  label = "p.signif",
+                     symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+                                      symbols = c("***", "**", "*", "ns")), label.y = c(1.1, 1.2, 1.3))
+
+#####TIDE####
+setwd("D://CeRNA结直肠癌//免疫浸润")
+expression <- read.table("fpkm_mRNA_01A_log_scale_患者交集.txt",sep = "\t",row.names = 1,check.names = F,stringsAsFactors = F,header = T)
+colnames(expression) <- gsub("-",".",colnames(expression))
+expression<-as.matrix(expression)
+CTL_genes = c('CD8A', 'CD8B', 'GZMA', 'GZMB', 'PRF1')
+writemat = function(result, output)
+{
+  result = result[!is.na(result[,"p"]),,drop=F]
+  FDR = p.adjust(result[,"p"], method="fdr")
+  result = cbind(result, FDR)
+  write.table(result, file=output, sep='\t', quote=F)
+}
+mat = t(expression) 
+pivot<-t(expression [CTL_genes,]) # CD8A, CD8B, GZMA, GZMB, PRF1 
+clinical <- read.table("Risk_score.txt",sep = "\t",row.names = 1,check.names = F,stringsAsFactors = F,header = T)
+survival = data.frame(clinical)
+survival = survival[survival[,1] > 0,]#Screening samples with survival times above 0
+output = "CRC"
+common = Reduce(intersect, list(rownames(mat),rownames(survival),rownames(pivot)))
+print(paste(length(common), "samples"))
+if(length(common) < 20) stop("two few samples")#Sample count too low to stop running
+not_included = setdiff(CTL_genes, colnames(pivot))
+
+if(length(not_included) > 0) stop(paste(c("pivot genes", not_included,"are not included"), ' '))
+
+pivot = rowMeans(pivot[common,CTL_genes])
+mat = mat[common,,drop=F]
+survival = survival[common,,drop=F]
+death_rate = sum(survival[,2])/dim(survival)[1]#Calculation of disease mortality, where 1 represents death and 0 represents survival
+if(death_rate < 0.1) stop(paste("death rate", death_rate, "is too low"))
+library(survival)
+surv = Surv(survival[,1], survival[,2])
+if(dim(survival)[2] > 2){
+  B = survival[,3:dim(survival)[2], drop=F]
+}else{
+  B = survival[,c(), drop=F]
+}
+B = cbind(B, pivot, pivot, pivot)
+B = as.data.frame(B)
+N_B = dim(B)[2]
+# of tests, cox regression analysis based on CTL expression values
+coxph.pivot = summary(coxph(surv~., data=B[,c(-N_B, -(N_B-1)), drop=F]))$coef
+write.csv(coxph.pivot,file=paste0(output, "_coxph.csv"))
+colnames(B)[N_B-1] = "partner"
+colnames(B)[N_B] = "Interaction"
+#Creating the results matrix
+features = colnames(mat)
+N = length(features)
+result_interaction = matrix(nrow=N, ncol=2, dimnames=list(features, c('z','p')))
+result_main = matrix(nrow=N, ncol=2, dimnames=list(features, c('z','p')))
+result_partial = matrix(nrow=N, ncol=2, dimnames=list(features, c('z','p')))
+result_base = matrix(nrow=N, ncol=2, dimnames=list(features, c('z','p')))
+# Traverse each gene in the gene expression matrix
+for (i in 1:N){
+  title = features[i]
+  partner = mat[,i]
+  B[,N_B-1] = partner
+  B[,N_B] = partner * pivot 
+  #相互作用模型
+  errflag = F
+  coxph.fit = tryCatch(coxph(surv~., data=B),
+                       error = function(e) errflag <<- T,
+                       warning = function(w) errflag <<- T)
+  if(!errflag){
+    reg.summary = summary(coxph.fit)$coef
+    result_interaction[i,] = reg.summary["Interaction", c("z", "Pr(>|z|)")]
+    result_main[i,] = reg.summary["partner", c("z", "Pr(>|z|)")]
+  }
+  errflag = F
+  coxph.fit = tryCatch(coxph(surv~., data=B[,-N_B]),
+                       error = function(e) errflag <<- T,
+                       warning = function(w) errflag <<- T)
+  if(!errflag){
+    reg.summary = summary(coxph.fit)$coef
+    result_partial[i,] = reg.summary["partner", c("z", "Pr(>|z|)")]
+  }
+  errflag = F
+  coxph.fit = tryCatch(coxph(surv~., data=B[,c(-N_B, -(N_B-2)), drop=F]),
+                       error = function(e) errflag <<- T,
+                       warning = function(w) errflag <<- T)
+  
+  if(!errflag){
+    reg.summary = summary(coxph.fit)$coef
+    result_base[i,] = reg.summary["partner", c("z", "Pr(>|z|)")]
+  }
+}
+writemat(result_interaction, paste0(output, "_interaction.txt"))
+
+#Association between gene expression and survival prognosis
+writemat(result_main, paste0(output, "_main.txt"))
+#Association between survival outcomes and gene expression after correction for CTL expression levels in Cox-PH regression
+writemat(result_partial, paste0(output, "_partial.txt"))
+#Correlation of main effects with each gene in interaction tests
+writemat(result_base, paste0(output, "_base.txt"))
+#Calculation of T Cell Dysfunction Correlation by Interaction
+result_interaction<-data.frame(result_interaction)
+result_diff<-result_interaction[which(result_interaction$p<0.05),]
+dys_expr<-expression[row.names(result_diff),]
+TIDE<-data.frame(matrix(0,563,2))
+TIDE$sample<-colnames(dys_expr)
+colnames(TIDE)<-c("Dysfunction","Exclusion","Sample")
+
+#Correlation analysis between T cell dysfunction characterization scores and corresponding gene expression profiles
+for(i in 1:563){
+  TIDE[i,1]<-cor(dys_expr[,i],result_diff[,1],method="pearson")
+}
+#Calculate the relevance of T Cell Exclusion 
+exclusion<-read.table("exclusion.txt", sep='\t', header=T, check.names=F,quote=NULL)
+exclusion <- exclusion[!duplicated(exclusion$gene),]
+deg<-intersect(exclusion$gene,rownames(expression))
+rownames(exclusion)<-exclusion$gene
+excl_ave<-exclusion[deg,]
+excl_ave<-excl_ave[,-1]
+excl_expr<- expression[deg,]
+for(i in 1:563){
+  TIDE[i,2]<-cor(excl_expr[,i],excl_ave[,4],method="pearson",use = "complete.obs")
+}
+write.table(TIDE, file = "TIDE.txt",sep = "\t",row.names = T,col.names = NA,quote = F)
+#plot
+TIDE <- read.table("TIDE.txt",sep = "\t",row.names = 1,check.names = F,stringsAsFactors = F,header = T)
+Risk_score <- read.table("Risk_score.txt",sep = "\t",row.names = 1,check.names = F,stringsAsFactors = F,header = T)
+com<-intersect(rownames(Risk_score),TIDE$Sample)
+rownames(TIDE)<-TIDE$Sample
+TIDE<-TIDE[com,]
+data<-cbind(TIDE,Risk_score)
+data<-data[,-c(3:5)]
+B<-data
+library(tidyverse)
+B$sample<-rownames(B)
+B<-as.data.frame(B)
+B$group = factor(B$group, levels = c("cluster1","cluster2","cluster3"))
+library(ggsci)
+library(tidyr)
+library(ggpubr)
+b <- gather(B,key=TIDE,value = Proportion,-c(group,sample))
+b1<-b[b$TIDE=='Dysfunction',]
+library(ggpubr)
+my_comparisons = list(c("cluster1","cluster2"), c("cluster2","cluster3"), c("cluster1","cluster3"))
+ggboxplot(b1, x = "group", y = "Proportion",ylab='Dysfunction',add="jitter",
+          color = "group",fill = "white", palette =c(
+            #"#2878B5",
+            "blue",                                                                                                                 
+            "#F8AC8C",
+            "red"
+          ) )+ 
+  stat_compare_means(comparisons = my_comparisons,method = "wilcox.test", symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+                                                                                           symbols = c("***", "**", "*", "ns")), label.y = c(0.7, 1, 1.3))
+b2<-b[b$TIDE=='Exclusion',]
+library(ggpubr)
+my_comparisons = list(c("cluster1","cluster2"), c("cluster2","cluster3"), c("cluster1","cluster3"))
+ggboxplot(b2, x = "group", y = "Proportion",ylab='Exclusion',add="jitter",
+          color = "group",fill = "white", palette =c(
+            #"#2878B5",
+            "blue",                                                                                                                 
+            "#F8AC8C",
+            "red"
+          ) )+ 
+  stat_compare_means(comparisons = my_comparisons,method = "wilcox.test", symnum.args=list(cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+                                                                                           symbols = c("***", "**", "*", "ns")), label.y = c(0.35, 0.45, 0.55))
